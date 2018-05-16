@@ -146,3 +146,63 @@ summary(cv_s1)
 #stop cluster when done
 parallel::stopCluster(cluster)
 
+#weight distribution SL
+#function to extract the weights at each CV.SuperLearner iteration and summarize the distribution of those weights
+
+review_weights = function(cv_s1) {
+  meta_weights = coef(cv_s1)
+  means = colMeans(meta_weights)
+  sds = apply(meta_weights, MARGIN = 2, FUN = sd)
+  mins = apply(meta_weights, MARGIN = 2, FUN = min)
+  maxs = apply(meta_weights, MARGIN = 2, FUN = max)
+  
+  #combine in single matrix
+  sl_stats = cbind('meand(weight' = means, 'sd' = sds, 'min' = mins, 'max' = maxs)
+  #sort by decreasing weight
+  sl_stats[order(sl_stats[,1], decreasing = T),]
+}
+
+print(review_weights(cv_s1), digits = 3)
+#!review weight distribution for SuperLearner project to better understand which algorithms are chosen for the ensemble
+
+#Feature selection
+listWrappers()
+screen.corP #based on univariate correlation
+
+set.seed(1)
+cv_s1 = CV.SuperLearner(Y = Y_train, X = X_train, family = binomial(), V = 3, parallel = 'multicore', SL.library = list('SL.mean', 'SL.glmnet', c('SL.glmnet', 'screen.corP')))
+summary(cv_s1)
+
+#Optimize for AUC
+library(cvAUC)
+library(data.table)
+
+set.seed(1)
+cv_s1 = CV.SuperLearner(Y=Y_train, X = X_train, family = binomial(), V = 3, method = 'method.AUC', SL.library = list('SL.mean', 'SL.glmnet', c('SL.glmnet', 'screen.corP')))
+summary(cv_s1)
+
+cv_s1 = CV.SuperLearner(Y=Y_train, X = X_train, family = binomial(), V = 3, method = 'method.NNloglik', SL.library = list('SL.mean', 'SL.glmnet', c('SL.glmnet', 'screen.corP')))
+summary(cv_s1)
+
+#XGBoost hyperparameter exploration
+#36 configurations
+
+tune = list(ntrees = c(100, 200, 500), max_depth = 1:4, shrinkage = c(0.001, 0.01, 0.1))
+learners = create.Learner('SL.xgboost', tune = tune, detailed_names = T, name_prefix = 'xgb')
+length(learners$names)
+learners$names
+
+getOption('mc.cores')
+options(mc.cores = 2)
+getOption('mc.cores')
+
+set.seed(1, "L'Ecuyer-CMRG")
+library(xgboost)
+system.time({
+  cv_s1 = CV.SuperLearner(Y = Y_train, X = X_train, family = binomial(), V = 3, parallel = 'multicore', SL.library = c('SL.mean', 'SL.glmnet', learners$names, 'SL.randomForest'))
+})
+summary(cv_s1)
+
+
+
+
